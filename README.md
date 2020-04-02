@@ -18,7 +18,7 @@ import os, io
 
 x = 5
 
-import zipfile
+import base64
 ```
 
 Then run importsort across it:
@@ -51,7 +51,7 @@ import thirdpartylib
 
 x = 5
 
-import zipfile
+import base64
 ```
 
 ## Sorting principles
