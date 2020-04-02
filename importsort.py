@@ -4,14 +4,10 @@ Sorts imports at the top of a file.
 """
 
 import argparse
-import collections
 
-from bowler import Query, TOKEN, SYMBOL
-from bowler.types import Leaf, Node, STARS
-from fissix.fixer_util import Comma
+from bowler import Query, TOKEN
 from fissix.pygram import python_symbols as syms
 
-flags = {}
 
 STDLIB_MODULES_PY37 = '__future__,__phello__,_abc,_ast,_asyncio,_bisect,_blake2,_bootlocale,_bz2,_codecs,_codecs_cn,_codecs_hk,_codecs_iso2022,_codecs_jp,_codecs_kr,_codecs_tw,_collections,_collections_abc,_compat_pickle,_compression,_contextvars,_crypt,_csv,_ctypes,_ctypes_test,_curses,_curses_panel,_datetime,_dbm,_decimal,_dummy_thread,_elementtree,_functools,_gdbm,_hashlib,_heapq,_imp,_io,_json,_locale,_lsprof,_lzma,_markupbase,_md5,_multibytecodec,_multiprocessing,_opcode,_operator,_osx_support,_pickle,_posixsubprocess,_py_abc,_pydecimal,_pyio,_queue,_random,_scproxy,_sha1,_sha256,_sha3,_sha512,_signal,_sitebuiltins,_socket,_sqlite3,_sre,_ssl,_stat,_string,_strptime,_struct,_symtable,_sysconfigdata_m_darwin_darwin,_testbuffer,_testcapi,_testimportmultiple,_testmultiphase,_thread,_threading_local,_tkinter,_tracemalloc,_uuid,_warnings,_weakref,_weakrefset,_xxtestfuzz,abc,aifc,antigravity,argparse,array,ast,asynchat,asyncio,asyncore,atexit,audioop,base64,bdb,binascii,binhex,bisect,builtins,bz2,cProfile,calendar,cgi,cgitb,chunk,cmath,cmd,code,codecs,codeop,collections,colorsys,compileall,concurrent,config-3,configparser,contextlib,contextvars,copy,copyreg,crypt,csv,ctypes,curses,dataclasses,datetime,dbm,decimal,difflib,dis,distutils,doctest,dummy_threading,email,encodings,ensurepip,enum,errno,faulthandler,fcntl,filecmp,fileinput,fnmatch,formatter,fractions,ftplib,functools,gc,genericpath,getopt,getpass,gettext,glob,grp,gzip,hashlib,heapq,hmac,html,http,idlelib,imaplib,imghdr,imp,importlib,inspect,io,ipaddress,itertools,json,keyword,lib2to3,linecache,locale,logging,lzma,macpath,mailbox,mailcap,marshal,math,mimetypes,mmap,modulefinder,multiprocessing,netrc,nis,nntplib,ntpath,nturl2path,numbers,opcode,operator,optparse,os,parser,pathlib,pdb,pickle,pickletools,pipes,pkgutil,platform,plistlib,poplib,posix,posixpath,pprint,profile,pstats,pty,pwd,py_compile,pyclbr,pydoc,pydoc_data,pyexpat,queue,quopri,random,re,readline,reprlib,resource,rlcompleter,runpy,sched,secrets,select,selectors,shelve,shlex,shutil,signal,site,smtpd,smtplib,sndhdr,socket,socketserver,sqlite3,sre_compile,sre_constants,sre_parse,ssl,stat,statistics,string,stringprep,struct,subprocess,sunau,symbol,symtable,sys,sysconfig,syslog,tabnanny,tarfile,telnetlib,tempfile,termios,test,textwrap,this,threading,time,timeit,tkinter,token,tokenize,trace,traceback,tracemalloc,tty,turtle,turtledemo,types,typing,unicodedata,unittest,urllib,uu,uuid,venv,warnings,wave,weakref,webbrowser,wsgiref,xdrlib,xml,xmlrpc,xxlimited,xxsubtype,zipapp,zipfile,zipimport,zli'
 STDLIB_MODULES_PY27 = u'BaseHTTPServer,Bastion,CGIHTTPServer,ColorPicker,ConfigParser,Cookie,DocXMLRPCServer,HTMLParser,MacOS,MimeWriter,Nav,OSATerminology,Queue,SimpleHTTPServer,SimpleXMLRPCServer,SocketServer,StringIO,UserDict,UserList,UserString,_AE,_AH,_App,_CF,_CG,_CarbonEvt,_Cm,_Ctl,_Dlg,_Drag,_Evt,_File,_Fm,_Folder,_Help,_IBCarbon,_Icn,_LWPCookieJar,_Launch,_List,_Menu,_Mlte,_MozillaCookieJar,_OSA,_Qd,_Qdoffs,_Res,_Scrap,_Snd,_TE,_Win,__builtin__,__future__,__main__,__phello__,_abcoll,_ast,_bisect,_codecs,_codecs_cn,_codecs_hk,_codecs_iso2022,_codecs_jp,_codecs_kr,_codecs_tw,_collections,_csv,_ctypes,_ctypes_test,_curses,_curses_panel,_elementtree,_functools,_hashlib,_heapq,_hotshot,_io,_json,_locale,_lsprof,_multibytecodec,_multiprocessing,_osx_support,_pyio,_random,_scproxy,_socket,_sqlite3,_sre,_ssl,_strptime,_struct,_symtable,_sysconfigdata,_testcapi,_threading_local,_tkinter,_warnings,_weakref,_weakrefset,abc,aifc,antigravity,anydbm,argparse,array,ast,asynchat,asyncore,atexit,audiodev,audioop,autoGIL,base64,bdb,binascii,binhex,bisect,bsddb,bsddb185,bz2,cPickle,cProfile,cStringIO,calendar,cgi,cgitb,chunk,cmath,cmd,code,codecs,codeop,collections,colorsys,commands,compileall,compiler,contextlib,cookielib,copy,copy_reg,crypt,csv,ctypes,curses,datetime,dbhash,dbm,decimal,difflib,dircache,dis,distutils,doctest,dumbdbm,dummy_thread,dummy_threading,email,encodings,ensurepip,errno,exceptions,fcntl,filecmp,fileinput,fnmatch,formatter,fpformat,fractions,ftplib,functools,future_builtins,gc,gdbm,genericpath,gestalt,getopt,getpass,gettext,glob,grp,gzip,hashlib,heapq,hmac,hotshot,htmlentitydefs,htmllib,httplib,icglue,idlelib,ihooks,imaplib,imghdr,imp,importlib,imputil,inspect,io,itertools,json,keyword,lib-tk,lib2to3,linecache,locale,logging,macpath,macurl2path,mailbox,mailcap,markupbase,marshal,math,md5,mhlib,mimetools,mimetypes,mimify,mmap,modulefinder,multifile,multiprocessing,mutex,netrc,new,nis,nntplib,ntpath,nturl2path,numbers,opcode,operator,optparse,os,os2emxpath,parser,pdb,pickle,pickletools,pipes,pkgutil,plat-darwin,plat-mac,platform,plistlib,popen2,poplib,posix,posixfile,posixpath,pprint,profile,pstats,pty,pwd,py_compile,pyclbr,pydoc,pydoc_data,pyexpat,quopri,random,re,readline,repr,resource,rexec,rfc822,rlcompleter,robotparser,runpy,sched,select,sets,sgmllib,sha,shelve,shlex,shutil,signal,site,smtpd,smtplib,sndhdr,socket,sqlite3,sre,sre_compile,sre_constants,sre_parse,ssl,stat,statvfs,string,stringold,stringprep,strop,struct,subprocess,sunau,sunaudio,symbol,symtable,sys,sysconfig,syslog,tabnanny,tarfile,telnetlib,tempfile,termios,test,textwrap,this,thread,threading,time,timeit,toaiff,token,tokenize,trace,traceback,tty,types,unicodedata,unittest,urllib,urllib2,urlparse,user,uu,uuid,warnings,wave,weakref,webbrowser,whichdb,wsgiref,xdrlib,xml,xmllib,xmlrpclib,xxsubtype,zipfile,zipimport,zlib'
@@ -138,13 +134,6 @@ def sort_imports(node, capture, filename):
 def main():
     parser = argparse.ArgumentParser(description="Sorts top-of-file imports.")
     parser.add_argument(
-        '--no-input',
-        dest='interactive',
-        default=True,
-        action='store_false',
-        help="Non-interactive mode",
-    )
-    parser.add_argument(
         '--no-write',
         dest='write',
         default=True,
@@ -152,21 +141,11 @@ def main():
         help="Don't write the changes to the source file, just output a diff to stdout",
     )
     parser.add_argument(
-        '--debug',
-        dest='debug',
-        default=False,
-        action='store_true',
-        help="Spit out debugging information",
-    )
-    parser.add_argument(
         'files', nargs='+', help="The python source file(s) to operate on."
     )
     args = parser.parse_args()
 
-    # No way to pass this to .modify() callables, so we just set it at module level
-    flags['debug'] = args.debug
-
-    query = (
+    (
         # Look for files in the current working directory
         Query(*args.files)
         .select_root()
@@ -174,7 +153,7 @@ def main():
         # Actually run both of the above.
         .execute(
             # interactive diff implies write (for the bits the user says 'y' to)
-            interactive=(args.interactive and args.write),
+            interactive=False,
             write=args.write,
         )
     )
