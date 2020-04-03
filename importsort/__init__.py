@@ -4,7 +4,10 @@ Sorts imports at the top of a file.
 """
 
 import argparse
+import os
+from pathlib import Path
 
+import toml
 from bowler import Query, TOKEN
 from fissix.pygram import python_symbols as syms
 
@@ -37,6 +40,22 @@ def get_top_import_nodes(file_node):
         import_allowed_nodes.append(imp)
 
 
+cfg = None
+
+
+def init_cfg():
+    global cfg
+    path = Path('~/.importsort.cfg').expanduser()
+    if path.exists():
+        with path.open() as f:
+            cfg = toml.load(f)
+    else:
+        cfg = {}
+    # Set defaults.
+    cfg.setdefault('first_party_modules', [])
+    cfg['first_party_modules'] = set(cfg['first_party_modules'])
+
+
 def _sort_imported_names(parent_node):
     """
     Given a syms.import_as_names node,
@@ -67,19 +86,24 @@ def is_stdlib(module_name):
 
 def module_sort_key(module_tuple):
     name, import_node, first_imported_name = module_tuple
+    root_module_name = name.split('.')[0]
 
     # do 'from ...' imports after 'import ...' imports.
     from_ = 1 if first_imported_name is not None else 0
 
-    if name == '__future__':
-        return 0, from_, name, first_imported_name
-    if is_stdlib(name):
-        return 1, from_, name, first_imported_name
-
-    # TODO: whitelist first-party, and return 2 (third-party) for others.
-
-    # first party.
-    return 3, from_, name, first_imported_name
+    if root_module_name == '__future__':
+        # special case; must come first
+        group = 0
+    elif is_stdlib(root_module_name):
+        # stdlib modules
+        group = 1
+    elif root_module_name not in cfg['first_party_modules']:
+        # third party modules
+        group = 2
+    else:
+        # first party modules
+        group = 3
+    return group, from_, name, first_imported_name
 
 
 def sort_imports(node, capture, filename):
@@ -91,11 +115,20 @@ def sort_imports(node, capture, filename):
     # * Do inline sorting of imported names (`import b, c, a` --> `import a, b, c`)
     for imp in import_nodes:
         if imp.type == syms.import_name:
-            if imp.children[1].type == TOKEN.NAME:
+            module_node = imp.children[1]
+            if module_node.type == TOKEN.NAME:
                 # 'import os'
-                module = imp.children[1].value
+                module = module_node.value
                 module_imports.append((module, imp.clone(), None))
-            elif imp.children[1].type == syms.dotted_as_names:
+            elif module_node.type == syms.dotted_name:
+                # 'import x.y'
+                module = str(module_node)
+                module_imports.append((module, imp.clone(), None))
+            elif module_node.type == syms.dotted_as_name:
+                # 'import os as OS'
+                module = module_node.children[0].value
+                module_imports.append((module, imp.clone(), None))
+            elif module_node.type == syms.dotted_as_names:
                 # 'import os, io'
                 first_name = _sort_imported_names(imp.children[1])
 
@@ -103,7 +136,13 @@ def sort_imports(node, capture, filename):
             else:
                 raise ValueError(f"Unknown import format: {imp}")
         elif imp.type == syms.import_from:
-            module = imp.children[1].value
+            print(imp)
+            module_node = imp.children[1]
+            if module_node.type == syms.dotted_name:
+                # 'from x.y import z'
+                module = str(module_node.children[0])
+            else:
+                module = module_node.value
             names = [n for n in imp.children[3:] if n.type != TOKEN.LPAR]
             if names[0].type == TOKEN.NAME:
                 # 'from x import y'
@@ -142,6 +181,7 @@ def main():
         'files', nargs='+', help="The python source file(s) to operate on."
     )
     args = parser.parse_args()
+    init_cfg()
 
     (
         # Look for files in the current working directory
