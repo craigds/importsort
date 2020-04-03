@@ -1,9 +1,9 @@
 # Decent import sorting for python files.
 
-This is a pre-alpha quality package. It has no pypi release or setup.py yet.
+This is a pre-alpha package. It has no pypi release yet.
 It might break your code. Sorry about that, but your fault for running this really.
 
-The *goal* is to soon be able to sort the top-of-file imports in your python file, with correctness and style
+The *goal* is to soon be able to sort the top-of-file imports in your python file.
 
 ## Usage
 
@@ -24,7 +24,7 @@ import base64
 Then run importsort across it:
 
 ```bash
-$ ./importsort.py testfile.py
+$ importsort testfile.py
 --- testfile.py
 +++ testfile.py
 @@ -1,8 +1,8 @@

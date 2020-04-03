@@ -101,8 +101,7 @@ def sort_imports(node, capture, filename):
 
                 module_imports.append((first_name, imp.clone(), None))
             else:
-                # ?
-                assert False, imp
+                raise ValueError(f"Unknown import format: {imp}")
         elif imp.type == syms.import_from:
             module = imp.children[1].value
             names = [n for n in imp.children[3:] if n.type != TOKEN.LPAR]
@@ -119,8 +118,7 @@ def sort_imports(node, capture, filename):
 
             module_imports.append((module, imp.clone(), first_name))
         else:
-            # ?
-            assert False, imp
+            raise ValueError(f"Unknown import format: {imp}")
 
     # Now sort the various lines we've encountered.
     module_imports.sort(key=module_sort_key)
@@ -157,7 +155,3 @@ def main():
             write=args.write,
         )
     )
-
-
-if __name__ == '__main__':
-    main()
