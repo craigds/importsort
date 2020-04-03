@@ -119,24 +119,20 @@ def sort_imports(node, capture, filename):
             if module_node.type == TOKEN.NAME:
                 # 'import os'
                 module = module_node.value
-                module_imports.append((module, imp.clone(), None))
             elif module_node.type == syms.dotted_name:
                 # 'import x.y'
                 module = str(module_node)
-                module_imports.append((module, imp.clone(), None))
             elif module_node.type == syms.dotted_as_name:
                 # 'import os as OS'
                 module = module_node.children[0].value
-                module_imports.append((module, imp.clone(), None))
             elif module_node.type == syms.dotted_as_names:
                 # 'import os, io'
-                first_name = _sort_imported_names(imp.children[1])
+                module = _sort_imported_names(imp.children[1])
 
-                module_imports.append((first_name, imp.clone(), None))
             else:
                 raise ValueError(f"Unknown import format: {imp}")
+            first_name = None
         elif imp.type == syms.import_from:
-            print(imp)
             module_node = imp.children[1]
             if module_node.type == syms.dotted_name:
                 # 'from x.y import z'
@@ -154,10 +150,11 @@ def sort_imports(node, capture, filename):
                 # 'from x import y, z'
                 # 'from x import y as a, z as b'
                 first_name = _sort_imported_names(names[0])
-
-            module_imports.append((module, imp.clone(), first_name))
+            else:
+                raise ValueError(f"Unknown import format: {imp}")
         else:
             raise ValueError(f"Unknown import format: {imp}")
+        module_imports.append((module, imp.clone(), first_name))
 
     # Now sort the various lines we've encountered.
     module_imports.sort(key=module_sort_key)
