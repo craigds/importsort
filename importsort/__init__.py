@@ -5,9 +5,12 @@ Sorts imports at the top of a file.
 
 import argparse
 from pathlib import Path
+import re
 
 import toml
 from bowler import Query, TOKEN
+from fissix.fixer_util import Newline
+from fissix.pytree import Node
 from fissix.pygram import python_symbols as syms
 
 
@@ -42,20 +45,26 @@ def get_top_import_nodes(file_node):
         import_allowed_nodes.append(imp)
 
 
-cfg = None
+cfg = {}
 
 
 def init_cfg():
-    global cfg
     path = Path('~/.importsort.cfg').expanduser()
     if path.exists():
         with path.open() as f:
-            cfg = toml.load(f)
+            config = toml.load(f)
     else:
-        cfg = {}
+        config = {}
+
+    configure(**config)
+
+
+def configure(**config):
     # Set defaults.
-    cfg.setdefault('first_party_modules', [])
-    cfg['first_party_modules'] = set(cfg['first_party_modules'])
+    cfg.setdefault('first_party_modules', set())
+
+    if 'first_party_modules' in config:
+        cfg['first_party_modules'] = set(config['first_party_modules'])
 
 
 def _sort_imported_names(parent_node):
@@ -67,6 +76,7 @@ def _sort_imported_names(parent_node):
     orig_nodes = []
     sorted_nodes = []
     for n in parent_node.children:
+        print(repr(n))
         if n.type in (TOKEN.NAME, syms.import_as_name):
             orig_nodes.append(n)
             sorted_nodes.append(n.clone())
@@ -77,6 +87,9 @@ def _sort_imported_names(parent_node):
     sorted_nodes.sort(key=get_name)
 
     for orig, new in zip(orig_nodes, sorted_nodes):
+        new.prefix = orig.prefix
+        # always prefix a backslash with a space
+        new.prefix = re.sub(r'(?m)(\S|^)\\', r'\1 \\', new.prefix)
         orig.replace(new)
 
     return get_name(sorted_nodes[0])
@@ -92,7 +105,7 @@ def sort_imports(root, capture, filename):
     # * Go through all top-of-file imports.
     # * Index them by module name.
     # * Do inline sorting of imported names (`import b, c, a` --> `import a, b, c`)
-    for imp in import_nodes:
+    for i, imp in enumerate(import_nodes):
         first_name = None
         if imp.next_sibling:
             # detach any end-of-line comment and store it for later.
@@ -170,7 +183,14 @@ def sort_imports(root, capture, filename):
         else:
             # first party modules
             group = 4
-        module_imports.append((group, from_, module, first_name, imp.clone()))
+
+        # note: the `i` here is for a weird edge case where you try to sort
+        # two of the same exact import.
+        # turns out, Node instances aren't comparable, so we get an error if
+        # the sort ever has to compare them.
+        # So we insert a unique integer before them, thus preventing us ever having to
+        # compare the node instances.
+        module_imports.append((group, from_, module, first_name, i, imp.clone()))
 
     # Now sort the various lines we've encountered.
     module_imports.sort()
@@ -182,11 +202,11 @@ def sort_imports(root, capture, filename):
     # Then repopulate the tree with the sorted nodes, cleaning up whitespace as we go.
     last_group = 0
     next_prefix_comment = None
-    for i, (group, from_, module, first_name, node) in enumerate(module_imports):
+    for i, (group, from_, module, first_name, _, node) in enumerate(module_imports):
         prefix = node.prefix
         if last_group != group:
             # add a space between groups.
-            prefix = f'\n\n{prefix.lstrip()}'
+            prefix = f'\n{prefix.strip()}'
         if next_prefix_comment:
             prefix = f'{next_prefix_comment}{prefix}'
             next_prefix_comment = None
@@ -194,19 +214,33 @@ def sort_imports(root, capture, filename):
             prefix, next_prefix_comment = prefix.split(COMMENT_SPLITTER, 1)
         if i == 0:
             prefix = prefix.lstrip()
+        node = Node(syms.simple_stmt, [node, Newline()])
         node.prefix = prefix
         root.insert_child(i, node)
         last_group = group
 
     try:
         next_child = root.children[i + 1]
-        print(f'nc {next_child!r}')
     except IndexError:
         pass
     else:
-        next_child.prefix = (
-            f'{next_prefix_comment or ""}\n\n\n{next_child.prefix.lstrip()}'
+        next_child.prefix = f'{next_prefix_comment or ""}{next_child.prefix}'
+
+
+def run_query(files, write=True, silent=False):
+    (
+        # Look for files in the current working directory
+        Query(*files)
+        .select_root()
+        .modify(callback=sort_imports)
+        # Actually run both of the above.
+        .execute(
+            # interactive diff implies write (for the bits the user says 'y' to)
+            interactive=False,
+            write=write,
+            silent=silent,
         )
+    )
 
 
 def main():
@@ -223,16 +257,4 @@ def main():
     )
     args = parser.parse_args()
     init_cfg()
-
-    (
-        # Look for files in the current working directory
-        Query(*args.files)
-        .select_root()
-        .modify(callback=sort_imports)
-        # Actually run both of the above.
-        .execute(
-            # interactive diff implies write (for the bits the user says 'y' to)
-            interactive=False,
-            write=args.write,
-        )
-    )
+    run_query(args.files, write=args.write)
