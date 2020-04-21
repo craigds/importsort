@@ -42,7 +42,7 @@ def get_top_import_nodes(file_node):
         ):
             # something else? terminate the top-of-file imports here.
             return import_allowed_nodes
-        import_allowed_nodes.append(imp)
+        import_allowed_nodes.append(node)
 
 
 cfg = {}
@@ -72,54 +72,77 @@ def _sort_imported_names(parent_node):
     Given a syms.import_as_names node,
     re-orders the child nodes (imported names) so that they are sorted alphabetically.
     Returns the name of the first imported name, after sorting.
+    Attempts to keep comments with their associated statements.
     """
-    orig_nodes = []
-    sorted_nodes = []
-    for n in parent_node.children:
-        print(repr(n))
-        if n.type in (TOKEN.NAME, syms.import_as_name):
-            orig_nodes.append(n)
-            sorted_nodes.append(n.clone())
 
     def get_name(n):
         return n.value if n.type == TOKEN.NAME else n.children[0].value
 
+    orig_nodes = []
+    sorted_nodes = []
+    trailing_comments = {
+        # name(str) : comment (str)
+    }
+    prev_name = None
+    for n in parent_node.children:
+        if n.type in (TOKEN.NAME, syms.import_as_name):
+            if prev_name and n.prefix.lstrip(" ").startswith("#"):
+                # comment is actually on the same line as the previous node
+                trailing_comments[prev_name], n.prefix = n.prefix.lstrip(" ").split(
+                    '\n', 1
+                )
+                n.prefix = f'\n{n.prefix}'
+            orig_nodes.append(n)
+            sorted_nodes.append(n.clone())
+            prev_name = get_name(n)
+
+    if parent_node.type == syms.import_as_names:
+        # check for trailing comment on the imported name node, which will actually be
+        # the prefix of the ending parenthesis node.
+        # ie
+        #   from x import (
+        #      a,
+        #      b  # <THIS COMMENT>
+        #   ) # <-- is actually the 'prefix' of this parenthesis.
+        n = parent_node.next_sibling
+        if (
+            n
+            and n.type == TOKEN.RPAR
+            and prev_name
+            and n.prefix.lstrip(" ").startswith("#")
+        ):
+            trailing_comments[prev_name], n.prefix = n.prefix.lstrip(" ").split('\n', 1)
+
     sorted_nodes.sort(key=get_name)
 
+    prev_name = None
     for orig, new in zip(orig_nodes, sorted_nodes):
         new.prefix = orig.prefix
         # always prefix a backslash with a space
         new.prefix = re.sub(r'(?m)(\S|^)\\', r'\1 \\', new.prefix)
+        if prev_name in trailing_comments:
+            new.prefix = f'  {trailing_comments[prev_name]}{new.prefix}'
         orig.replace(new)
+        prev_name = get_name(new)
 
+    # Add any trailing comment on the last node
+    if prev_name in trailing_comments:
+        n = parent_node.next_sibling
+        n.prefix = f'  {trailing_comments[prev_name]}\n{n.prefix}'
     return get_name(sorted_nodes[0])
 
 
-COMMENT_SPLITTER = '!!IMPORTSORT!!'
-
-
 def sort_imports(root, capture, filename):
-    import_nodes = get_top_import_nodes(root)
+    statement_nodes = get_top_import_nodes(root)
+
     module_imports = []
 
     # * Go through all top-of-file imports.
     # * Index them by module name.
     # * Do inline sorting of imported names (`import b, c, a` --> `import a, b, c`)
-    for i, imp in enumerate(import_nodes):
+    for i, stmt in enumerate(statement_nodes):
         first_name = None
-        if imp.next_sibling:
-            # detach any end-of-line comment and store it for later.
-            # this associates it with the import itself.
-            comment = imp.next_sibling.prefix.lstrip()
-            if comment.startswith('#'):
-                # comment on the same line as imp.
-                imp.next_sibling.prefix = '\n'
-                # hack: move the comment into the prefix of `imp` so it stays with imp
-                # when we sort.
-                # We'll move it onto the next sibling node again after sorting.
-                # So that we keep track of which comments to move, append a suffix to the comment
-                # so we notice.
-                imp.prefix = f'{imp.prefix}{COMMENT_SPLITTER}  {comment}\n'
+        imp = stmt.children[0]
         if imp.type == syms.import_name:
             module_node = imp.children[1]
             if module_node.type == TOKEN.NAME:
@@ -157,8 +180,6 @@ def sort_imports(root, capture, filename):
                 first_name = _sort_imported_names(names[0])
             else:
                 raise ValueError(f"Unknown import format: {imp}")
-        elif imp.type == syms.NEWLINE:
-            imp.remove()
         else:
             # top-of-module docstring. float to top.
             module = ''
@@ -190,41 +211,33 @@ def sort_imports(root, capture, filename):
         # the sort ever has to compare them.
         # So we insert a unique integer before them, thus preventing us ever having to
         # compare the node instances.
-        module_imports.append((group, from_, module, first_name, i, imp.clone()))
+        module_imports.append((group, from_, module, first_name, i, stmt))
 
     # Now sort the various lines we've encountered.
     module_imports.sort()
 
     # Now, clear out all the statements from the parse tree
-    for n in import_nodes:
-        n.parent.remove()
+    for n in statement_nodes:
+        n.remove()
 
     # Then repopulate the tree with the sorted nodes, cleaning up whitespace as we go.
     last_group = 0
-    next_prefix_comment = None
-    for i, (group, from_, module, first_name, _, node) in enumerate(module_imports):
-        prefix = node.prefix
-        if last_group != group:
+    for i, (group, from_, module, first_name, _, stmt_node) in enumerate(
+        module_imports
+    ):
+        assert len(stmt_node.children) == 2
+        import_node = stmt_node.children[0]
+        newline_node = stmt_node.children[1]
+        prefix = import_node.prefix
+        if i != 0 and last_group != group:
             # add a space between groups.
             prefix = f'\n{prefix.strip()}'
-        if next_prefix_comment:
-            prefix = f'{next_prefix_comment}{prefix}'
-            next_prefix_comment = None
-        if COMMENT_SPLITTER in prefix:
-            prefix, next_prefix_comment = prefix.split(COMMENT_SPLITTER, 1)
         if i == 0:
             prefix = prefix.lstrip()
-        node = Node(syms.simple_stmt, [node, Newline()])
-        node.prefix = prefix
-        root.insert_child(i, node)
+        new_stmt = Node(syms.simple_stmt, [import_node.clone(), newline_node.clone()])
+        new_stmt.prefix = prefix
+        root.insert_child(i, new_stmt)
         last_group = group
-
-    try:
-        next_child = root.children[i + 1]
-    except IndexError:
-        pass
-    else:
-        next_child.prefix = f'{next_prefix_comment or ""}{next_child.prefix}'
 
 
 def run_query(files, write=True, silent=False):

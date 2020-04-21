@@ -76,3 +76,47 @@ def test_symbol_order_with_line_breaks(run):
 
 def test_sort_identical_imports(run):
     assert run(['import a', 'import a']) == ['import a', 'import a']
+
+
+def test_preserve_leading_comments(run):
+    assert run(['import b', '#comment a', 'import a']) == [
+        '#comment a',
+        'import a',
+        'import b',
+    ]
+
+
+def test_preserve_same_line_comments(run):
+    assert run(['import b  # comment b', 'import a', 'import c']) == [
+        'import a',
+        'import b  # comment b',
+        'import c',
+    ]
+
+
+def test_preserve_block_comments_including_whitespace(run):
+    assert run(
+        [
+            '#commentb 1',
+            '#commentb 2',
+            '',
+            '#commentb 4',
+            'import b',
+            'import a',
+            'import c',
+        ]
+    ) == [
+        'import a',
+        '#commentb 1',
+        '#commentb 2',
+        '',
+        '#commentb 4',
+        'import b',
+        'import c',
+    ]
+
+
+def test_preserve_same_line_comments_during_block_statement(run):
+    assert run(
+        ['from a import (', '  c,  # commentC', '  a,', '  b  # commentB', ')',]
+    ) == ['from a import (', '  a,', '  b,  # commentB', '  c  # commentC', ')',]
