@@ -120,3 +120,49 @@ def test_preserve_same_line_comments_during_block_statement(run):
     assert run(
         ['from a import (', '  c,  # commentC', '  a,', '  b  # commentB', ')',]
     ) == ['from a import (', '  a,', '  b,  # commentB', '  c  # commentC', ')',]
+
+
+def test_squash_extra_whitespace_with_comments(run):
+    # extra lines, in the same group, are removed. comments are preserved
+    assert run(['from a import x', '', '', '#b comment', 'from b import y']) == [
+        'from a import x',
+        '#b comment',
+        'from b import y',
+    ]
+
+
+def test_squash_extra_whitespace_with_comments_2(run):
+    # extra lines, in the same group, are removed. comments are preserved
+    assert run(
+        ['from a import x', '', '', '#b comment', '', '', 'from b import y']
+    ) == ['from a import x', '#b comment', 'from b import y',]
+
+
+def test_group_separating_whitespace_with_comments(run):
+    # one blank line between each group of imports
+    assert run(['from os import x', '#b comment', 'from b import y']) == [
+        'from os import x',
+        '',
+        '#b comment',
+        'from b import y',
+    ]
+
+
+def test_dotted_from_imports(run):
+    assert run(
+        ['from a.c.z import blah', 'from a.d.z import blah', 'from a.b.c import blah']
+    ) == ['from a.b.c import blah', 'from a.c.z import blah', 'from a.d.z import blah']
+
+
+def test_dotted_bare_imports(run):
+    assert run(['import a.c.z', 'import a.d.z', 'import a.b.c']) == [
+        'import a.b.c',
+        'import a.c.z',
+        'import a.d.z',
+    ]
+
+
+def test_dotted_bare_imported_names(run):
+    assert run(['import a.c.z, a.d.z, a.b.c']) == [
+        'import a.b.c, a.c.z, a.d.z',
+    ]

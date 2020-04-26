@@ -20,6 +20,14 @@ STDLIB_MODULES_PY27 = u'BaseHTTPServer,Bastion,CGIHTTPServer,ColorPicker,ConfigP
 STDLIB_MODULES = set(STDLIB_MODULES_PY37.split(',') + STDLIB_MODULES_PY27.split(','))
 
 
+class Groups:
+    DOCSTRING = 0
+    FUTURE = 1
+    STDLIB = 2
+    THIRD_PARTY = 3
+    FIRST_PARTY = 4
+
+
 class SkipString(ValueError):
     pass
 
@@ -76,7 +84,12 @@ def _sort_imported_names(parent_node):
     """
 
     def get_name(n):
-        return n.value if n.type == TOKEN.NAME else n.children[0].value
+        if n.type == TOKEN.NAME:
+            return n.value
+        elif n.type == syms.dotted_name:
+            return ''.join(c.value for c in n.children)
+        else:
+            return n.children[0].value
 
     orig_nodes = []
     sorted_nodes = []
@@ -85,7 +98,7 @@ def _sort_imported_names(parent_node):
     }
     prev_name = None
     for n in parent_node.children:
-        if n.type in (TOKEN.NAME, syms.import_as_name):
+        if n.type in (TOKEN.NAME, syms.import_as_name, syms.dotted_name):
             if prev_name and n.prefix.lstrip(" ").startswith("#"):
                 # comment is actually on the same line as the previous node
                 trailing_comments[prev_name], n.prefix = n.prefix.lstrip(" ").split(
@@ -132,6 +145,14 @@ def _sort_imported_names(parent_node):
     return get_name(sorted_nodes[0])
 
 
+def strip_prefix(prefix):
+    prefix = prefix.strip()
+    if prefix:
+        # prefix contains a comment.
+        prefix = f'{prefix}\n'
+    return prefix
+
+
 def sort_imports(root, capture, filename):
     statement_nodes = get_top_import_nodes(root)
 
@@ -164,7 +185,7 @@ def sort_imports(root, capture, filename):
             module_node = imp.children[1]
             if module_node.type == syms.dotted_name:
                 # 'from x.y import z'
-                module = str(module_node.children[0])
+                module = ''.join(c.value for c in module_node.children)
             else:
                 module = module_node.value
             names = [n for n in imp.children[3:] if n.type != TOKEN.LPAR]
@@ -184,6 +205,7 @@ def sort_imports(root, capture, filename):
             # top-of-module docstring. float to top.
             module = ''
 
+        module = module.strip()
         root_module_name = module.split('.')[0]
 
         # do 'from ...' imports after 'import ...' imports.
@@ -191,19 +213,19 @@ def sort_imports(root, capture, filename):
 
         if root_module_name == '':
             # module docstring
-            group = 0
+            group = Groups.DOCSTRING
         elif root_module_name == '__future__':
             # special case; must come first
-            group = 1
+            group = Groups.FUTURE
         elif root_module_name in STDLIB_MODULES:
             # stdlib modules
-            group = 2
+            group = Groups.STDLIB
         elif root_module_name not in cfg['first_party_modules']:
             # third party modules
-            group = 3
+            group = Groups.THIRD_PARTY
         else:
             # first party modules
-            group = 4
+            group = Groups.FIRST_PARTY
 
         # note: the `i` here is for a weird edge case where you try to sort
         # two of the same exact import.
@@ -211,7 +233,9 @@ def sort_imports(root, capture, filename):
         # the sort ever has to compare them.
         # So we insert a unique integer before them, thus preventing us ever having to
         # compare the node instances.
-        module_imports.append((group, from_, module, first_name, i, stmt))
+        module_imports.append(
+            (group, from_, module.lower(), first_name and first_name.lower(), i, stmt)
+        )
 
     # Now sort the various lines we've encountered.
     module_imports.sort()
@@ -222,22 +246,31 @@ def sort_imports(root, capture, filename):
 
     # Then repopulate the tree with the sorted nodes, cleaning up whitespace as we go.
     last_group = 0
-    for i, (group, from_, module, first_name, _, stmt_node) in enumerate(
+    last_root_module_name = None
+    for i, (group, from_, module_lower, first_name_lower, _, stmt_node) in enumerate(
         module_imports
     ):
         assert len(stmt_node.children) == 2
+        root_module_name = module_lower.split('.')[0]
         import_node = stmt_node.children[0]
         newline_node = stmt_node.children[1]
-        prefix = import_node.prefix
-        if i != 0 and last_group != group:
-            # add a space between groups.
-            prefix = f'\n{prefix.strip()}'
-        if i == 0:
-            prefix = prefix.lstrip()
+        prefix = strip_prefix(import_node.prefix)
+        if i != 0:
+            if last_group != group:
+                # add a space between groups.
+                prefix = f'\n{prefix}'
+            elif (
+                last_root_module_name != root_module_name
+                and group == Groups.FIRST_PARTY
+            ):
+                # also add a space between different first-party projects.
+                prefix = f'\n{prefix}'
+
         new_stmt = Node(syms.simple_stmt, [import_node.clone(), newline_node.clone()])
         new_stmt.prefix = prefix
         root.insert_child(i, new_stmt)
         last_group = group
+        last_root_module_name = root_module_name
 
 
 def run_query(files, write=True, silent=False):
